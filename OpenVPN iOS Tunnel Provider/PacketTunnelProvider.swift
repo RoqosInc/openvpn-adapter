@@ -19,6 +19,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     var stopHandler: (() -> Void)?
     
     override func startTunnel(options: [String : NSObject]? = nil, completionHandler: @escaping (Error?) -> Void) {
+//        let semaphore = DispatchSemaphore(value: 0)
+//        semaphore.wait(timeout: .now() + 15)
+        
         guard let protocolConfiguration = protocolConfiguration as? NETunnelProviderProtocol else {
             fatalError("protocolConfiguration should be an instance of the NETunnelProviderProtocol class")
         }
@@ -50,7 +53,25 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         
         if !properties.autologin {
-            // TODO: Get user credentials and provide them to the adapter
+            // TODO: Get user credentials using keychain and provide them to the adapter
+            guard
+                let username = options?[OpenVPNConfigurationKey.username] as? String,
+                let password = options?[OpenVPNConfigurationKey.password] as? String
+            else {
+                preconditionFailure()
+            }
+            
+            let credentials = OpenVPNCredentials().then {
+                $0.username = username
+                $0.password = password
+            }
+            
+            do {
+                try vpnAdapter.provide(credentials: credentials)
+            } catch {
+                completionHandler(error)
+                return
+            }
         }
         
         startHandler = completionHandler
@@ -114,6 +135,10 @@ extension PacketTunnelProvider: OpenVPNAdapterDelegate {
         } else {
             cancelTunnelWithError(error)
         }
+    }
+    
+    func handle(logMessage: String) {
+        
     }
     
 }
