@@ -11,6 +11,8 @@ import OpenVPNAdapter
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     
+    let keychain = Keychain(service: "me.ss-abramchuk.openvpn-ios-client", accessGroup: "2TWXCGG7R3.me.ss-abramchuk.openvpn-ios-client.keychain-group")
+    
     lazy var vpnAdapter: OpenVPNAdapter = {
         return OpenVPNAdapter().then { $0.delegate = self }
     }()
@@ -19,9 +21,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     var stopHandler: (() -> Void)?
     
     override func startTunnel(options: [String : NSObject]? = nil, completionHandler: @escaping (Error?) -> Void) {
-        let semaphore = DispatchSemaphore(value: 0)
-        semaphore.wait(timeout: .now() + 15)
-        
         guard let protocolConfiguration = protocolConfiguration as? NETunnelProviderProtocol else {
             fatalError("protocolConfiguration should be an instance of the NETunnelProviderProtocol class")
         }
@@ -53,12 +52,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         
         if !properties.autologin {
-            // TODO: Get user credentials using keychain and provide them to the adapter
+            guard let username = protocolConfiguration.username else {
+                preconditionFailure("username should be provided to the tunnel provider")
+            }
+            
             guard
-                let username = options?[OpenVPNConfigurationKey.username] as? String,
-                let password = options?[OpenVPNConfigurationKey.password] as? String
+                let reference = protocolConfiguration.passwordReference,
+                let password = (try? keychain.get(ref: reference))?.map({ $0 })
             else {
-                preconditionFailure()
+                preconditionFailure("password should be provided to the tunnel provider")
             }
             
             let credentials = OpenVPNCredentials().then {
@@ -135,10 +137,6 @@ extension PacketTunnelProvider: OpenVPNAdapterDelegate {
         } else {
             cancelTunnelWithError(error)
         }
-    }
-    
-    func handle(logMessage: String) {
-        
     }
     
 }
