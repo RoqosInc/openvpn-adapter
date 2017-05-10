@@ -23,16 +23,13 @@
 		C95717571EC22EFE006F38CC /* OpenVPNConfigurationKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95717551EC22EFE006F38CC /* OpenVPNConfigurationKey.swift */; };
 		C95717591EC232BA006F38CC /* Then.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95717581EC232BA006F38CC /* Then.swift */; };
 		C957175D1EC23653006F38CC /* NEPacketTunnelFlow+OpenVPN.swift in Sources */ = {isa = PBXBuildFile; fileRef = C957175C1EC23653006F38CC /* NEPacketTunnelFlow+OpenVPN.swift */; };
-		C95717661EC31E43006F38CC /* local_vpn_server.ovpn in Resources */ = {isa = PBXBuildFile; fileRef = C95717651EC31E43006F38CC /* local_vpn_server.ovpn */; };
-		C957176D1EC329B4006F38CC /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C912BB241E7C3339002B9414 /* NetworkExtension.framework */; };
-		C957176E1EC329B9006F38CC /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C912BB241E7C3339002B9414 /* NetworkExtension.framework */; };
-		C95717781EC32ADA006F38CC /* OpenVPNAdapter.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C9BB475C1E71663A00F3F98C /* OpenVPNAdapter.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		C957177A1EC32E8F006F38CC /* freeopenvpn_USA_udp.ovpn in Resources */ = {isa = PBXBuildFile; fileRef = C95717791EC32E8F006F38CC /* freeopenvpn_USA_udp.ovpn */; };
-		C957177C1EC32F6E006F38CC /* freeopenvpn_USA_tcp.ovpn in Resources */ = {isa = PBXBuildFile; fileRef = C957177B1EC32F6E006F38CC /* freeopenvpn_USA_tcp.ovpn */; };
 		C95717811EC33980006F38CC /* OpenVPNAdapter.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C9BB475C1E71663A00F3F98C /* OpenVPNAdapter.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C95717841EC36412006F38CC /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C912BB241E7C3339002B9414 /* NetworkExtension.framework */; };
 		C95717851EC3641B006F38CC /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C912BB241E7C3339002B9414 /* NetworkExtension.framework */; };
 		C95717891EC36512006F38CC /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C95717881EC36512006F38CC /* Keychain.swift */; };
+		C957178D1EC36DC2006F38CC /* freeopenvpn_USA_tcp.ovpn in Resources */ = {isa = PBXBuildFile; fileRef = C957178A1EC36DC2006F38CC /* freeopenvpn_USA_tcp.ovpn */; };
+		C957178E1EC36DC2006F38CC /* freeopenvpn_USA_udp.ovpn in Resources */ = {isa = PBXBuildFile; fileRef = C957178B1EC36DC2006F38CC /* freeopenvpn_USA_udp.ovpn */; };
+		C957178F1EC36DC2006F38CC /* local_vpn_server.ovpn in Resources */ = {isa = PBXBuildFile; fileRef = C957178C1EC36DC2006F38CC /* local_vpn_server.ovpn */; };
 		C9657A171EB0A7F800EFF210 /* OpenVPNConnectionInfo.h in Headers */ = {isa = PBXBuildFile; fileRef = C9657A151EB0A7F800EFF210 /* OpenVPNConnectionInfo.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		C9657A181EB0A7F800EFF210 /* OpenVPNConnectionInfo.h in Headers */ = {isa = PBXBuildFile; fileRef = C9657A151EB0A7F800EFF210 /* OpenVPNConnectionInfo.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		C9657A1D1EB0A8D800EFF210 /* OpenVPNConnectionInfo+Internal.h in Headers */ = {isa = PBXBuildFile; fileRef = C9657A1B1EB0A8D800EFF210 /* OpenVPNConnectionInfo+Internal.h */; };
@@ -111,7 +108,7 @@
 		C9BDB1471EBCCC4300C204FF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C9BDB1461EBCCC4300C204FF /* Assets.xcassets */; };
 		C9BDB14A1EBCCC4300C204FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = C9BDB1481EBCCC4300C204FF /* LaunchScreen.storyboard */; };
 		C9BDB15C1EBCCCAA00C204FF /* OpenVPN iOS Tunnel Provider.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C9BDB1531EBCCCAA00C204FF /* OpenVPN iOS Tunnel Provider.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		C9BDB16C1EBCCE9600C204FF /* OpenVPNAdapter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C9BB475C1E71663A00F3F98C /* OpenVPNAdapter.framework */; settings = {ATTRIBUTES = (Required, ); }; };
+		C9BDB16C1EBCCE9600C204FF /* OpenVPNAdapter.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C9BB475C1E71663A00F3F98C /* OpenVPNAdapter.framework */; };
 		C9BDB1721EBCD0F200C204FF /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9BDB1711EBCD0F200C204FF /* PacketTunnelProvider.swift */; };
 		C9D2ABDB1EA20F99007EDF9D /* OpenVPNAdapter.mm in Sources */ = {isa = PBXBuildFile; fileRef = C9BB477E1E7173C700F3F98C /* OpenVPNAdapter.mm */; };
 		C9D2ABDC1EA20F99007EDF9D /* OpenVPNClient.mm in Sources */ = {isa = PBXBuildFile; fileRef = C9BB47781E7171ED00F3F98C /* OpenVPNClient.mm */; };
@@ -134,19 +131,19 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		C95717691EC32860006F38CC /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = C91030F81E471D760004DFFE /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = C9BB475B1E71663A00F3F98C;
-			remoteInfo = "OpenVPN Adapter iOS";
-		};
 		C9BDB15A1EBCCCAA00C204FF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C91030F81E471D760004DFFE /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C9BDB1521EBCCCAA00C204FF;
 			remoteInfo = "OpenVPN iOS Tunnel Provider";
+		};
+		C9BDB16D1EBCCF3300C204FF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C91030F81E471D760004DFFE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C9BB475B1E71663A00F3F98C;
+			remoteInfo = "OpenVPN Adapter iOS";
 		};
 		C9D2AC011EA214D3007EDF9D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -165,14 +162,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		C95717771EC32AD1006F38CC /* Embed Frameworks */ = {
 		C95717801EC3396E006F38CC /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				C95717781EC32ADA006F38CC /* OpenVPNAdapter.framework in Embed Frameworks */,
 				C95717811EC33980006F38CC /* OpenVPNAdapter.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
@@ -210,10 +205,10 @@
 		C95717551EC22EFE006F38CC /* OpenVPNConfigurationKey.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = OpenVPNConfigurationKey.swift; sourceTree = "<group>"; };
 		C95717581EC232BA006F38CC /* Then.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Then.swift; sourceTree = "<group>"; };
 		C957175C1EC23653006F38CC /* NEPacketTunnelFlow+OpenVPN.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "NEPacketTunnelFlow+OpenVPN.swift"; sourceTree = "<group>"; };
-		C95717651EC31E43006F38CC /* local_vpn_server.ovpn */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = local_vpn_server.ovpn; sourceTree = "<group>"; };
-		C95717791EC32E8F006F38CC /* freeopenvpn_USA_udp.ovpn */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = freeopenvpn_USA_udp.ovpn; sourceTree = "<group>"; };
-		C957177B1EC32F6E006F38CC /* freeopenvpn_USA_tcp.ovpn */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = freeopenvpn_USA_tcp.ovpn; sourceTree = "<group>"; };
 		C95717881EC36512006F38CC /* Keychain.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = Keychain.swift; path = "OpenVPN iOS Client/Vendors/KeychainAccess/Keychain.swift"; sourceTree = SOURCE_ROOT; };
+		C957178A1EC36DC2006F38CC /* freeopenvpn_USA_tcp.ovpn */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = freeopenvpn_USA_tcp.ovpn; sourceTree = "<group>"; };
+		C957178B1EC36DC2006F38CC /* freeopenvpn_USA_udp.ovpn */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = freeopenvpn_USA_udp.ovpn; sourceTree = "<group>"; };
+		C957178C1EC36DC2006F38CC /* local_vpn_server.ovpn */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = local_vpn_server.ovpn; sourceTree = "<group>"; };
 		C9657A151EB0A7F800EFF210 /* OpenVPNConnectionInfo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = OpenVPNConnectionInfo.h; sourceTree = "<group>"; };
 		C9657A161EB0A7F800EFF210 /* OpenVPNConnectionInfo.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = OpenVPNConnectionInfo.mm; sourceTree = "<group>"; };
 		C9657A1B1EB0A8D800EFF210 /* OpenVPNConnectionInfo+Internal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "OpenVPNConnectionInfo+Internal.h"; sourceTree = "<group>"; };
@@ -297,7 +292,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C957176E1EC329B9006F38CC /* NetworkExtension.framework in Frameworks */,
 				C95717841EC36412006F38CC /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -306,7 +300,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C957176D1EC329B4006F38CC /* NetworkExtension.framework in Frameworks */,
 				C95717851EC3641B006F38CC /* NetworkExtension.framework in Frameworks */,
 				C9BDB16C1EBCCE9600C204FF /* OpenVPNAdapter.framework in Frameworks */,
 			);
@@ -673,11 +666,11 @@
 		C9BDB1661EBCCDBA00C204FF /* Configuration */ = {
 			isa = PBXGroup;
 			children = (
-				C9BDB14B1EBCCC4300C204FF /* Info.plist */,
 				C9BDB1611EBCCD5500C204FF /* OpenVPN iOS Client.entitlements */,
-				C95717791EC32E8F006F38CC /* freeopenvpn_USA_udp.ovpn */,
-				C957177B1EC32F6E006F38CC /* freeopenvpn_USA_tcp.ovpn */,
-				C95717651EC31E43006F38CC /* local_vpn_server.ovpn */,
+				C9BDB14B1EBCCC4300C204FF /* Info.plist */,
+				C957178A1EC36DC2006F38CC /* freeopenvpn_USA_tcp.ovpn */,
+				C957178B1EC36DC2006F38CC /* freeopenvpn_USA_udp.ovpn */,
+				C957178C1EC36DC2006F38CC /* local_vpn_server.ovpn */,
 			);
 			name = Configuration;
 			sourceTree = "<group>";
@@ -857,7 +850,6 @@
 				C9BDB13A1EBCCC4300C204FF /* Frameworks */,
 				C9BDB13B1EBCCC4300C204FF /* Resources */,
 				C9BDB1601EBCCCAA00C204FF /* Embed App Extensions */,
-				C95717771EC32AD1006F38CC /* Embed Frameworks */,
 				C95717801EC3396E006F38CC /* Embed Frameworks */,
 			);
 			buildRules = (
@@ -882,7 +874,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				C957176A1EC32860006F38CC /* PBXTargetDependency */,
+				C9BDB16E1EBCCF3300C204FF /* PBXTargetDependency */,
 			);
 			name = "OpenVPN iOS Tunnel Provider";
 			productName = "OpenVPN iOS Tunnel Provider";
@@ -937,7 +929,6 @@
 				TargetAttributes = {
 					C9BB475B1E71663A00F3F98C = {
 						CreatedOnToolsVersion = 8.2.1;
-						DevelopmentTeam = 2TWXCGG7R3;
 						LastSwiftMigration = 0830;
 						ProvisioningStyle = Manual;
 					};
@@ -969,7 +960,7 @@
 								enabled = 1;
 							};
 							com.apple.Keychain = {
-								enabled = 0;
+								enabled = 1;
 							};
 						};
 					};
@@ -1026,10 +1017,10 @@
 			files = (
 				C9BDB1471EBCCC4300C204FF /* Assets.xcassets in Resources */,
 				C9BDB14A1EBCCC4300C204FF /* LaunchScreen.storyboard in Resources */,
-				C95717661EC31E43006F38CC /* local_vpn_server.ovpn in Resources */,
-				C957177C1EC32F6E006F38CC /* freeopenvpn_USA_tcp.ovpn in Resources */,
+				C957178F1EC36DC2006F38CC /* local_vpn_server.ovpn in Resources */,
 				C9BDB1451EBCCC4300C204FF /* Main.storyboard in Resources */,
-				C957177A1EC32E8F006F38CC /* freeopenvpn_USA_udp.ovpn in Resources */,
+				C957178D1EC36DC2006F38CC /* freeopenvpn_USA_tcp.ovpn in Resources */,
+				C957178E1EC36DC2006F38CC /* freeopenvpn_USA_udp.ovpn in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1204,15 +1195,15 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		C957176A1EC32860006F38CC /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = C9BB475B1E71663A00F3F98C /* OpenVPN Adapter iOS */;
-			targetProxy = C95717691EC32860006F38CC /* PBXContainerItemProxy */;
-		};
 		C9BDB15B1EBCCCAA00C204FF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = C9BDB1521EBCCCAA00C204FF /* OpenVPN iOS Tunnel Provider */;
 			targetProxy = C9BDB15A1EBCCCAA00C204FF /* PBXContainerItemProxy */;
+		};
+		C9BDB16E1EBCCF3300C204FF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C9BB475B1E71663A00F3F98C /* OpenVPN Adapter iOS */;
+			targetProxy = C9BDB16D1EBCCF3300C204FF /* PBXContainerItemProxy */;
 		};
 		C9D2AC021EA214D3007EDF9D /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1322,7 +1313,7 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEFINES_MODULE = YES;
-				DEVELOPMENT_TEAM = 2TWXCGG7R3;
+				DEVELOPMENT_TEAM = "";
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";

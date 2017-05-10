@@ -11,11 +11,15 @@ import NetworkExtension
 
 class ViewController: UIViewController {
     
+    let keychain = Keychain(service: "me.ss-abramchuk.openvpn-ios-client", accessGroup: "2TWXCGG7R3.me.ss-abramchuk.openvpn-ios-client.keychain-group")
+    
     var manager: NETunnelProviderManager?
     
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
+        
+        
     }
 
     override func didReceiveMemoryWarning() {
@@ -67,10 +71,28 @@ class ViewController: UIViewController {
                 let configurationFile = Bundle.main.url(forResource: "freeopenvpn_USA_tcp", withExtension: "ovpn")
                 let configurationContent = try! Data(contentsOf: configurationFile!)
                 
+                let passwordKey = "me.ss-abramchuk.openvpn-ios-client.password"
+                
+                do {
+                    try self.keychain.set("nonsecure", key: passwordKey)
+                } catch {
+                    print("\(error.localizedDescription)")
+                    callback(error)
+                    return
+                }
+                
+                guard let passwordReference = self.keychain[attributes: passwordKey]?.persistentRef else {
+                    fatalError()
+                }
+                
                 let tunnelProtocol = NETunnelProviderProtocol()
                 tunnelProtocol.serverAddress = "192.168.1.200"
                 tunnelProtocol.providerBundleIdentifier = "me.ss-abramchuk.openvpn-ios-client.tunnel-provider"
                 tunnelProtocol.providerConfiguration = [OpenVPNConfigurationKey.fileContent: configurationContent]
+                
+                tunnelProtocol.username = "testuser"
+                tunnelProtocol.passwordReference = passwordReference
+                
                 tunnelProtocol.disconnectOnSleep = false
                 
                 self.manager?.protocolConfiguration = tunnelProtocol

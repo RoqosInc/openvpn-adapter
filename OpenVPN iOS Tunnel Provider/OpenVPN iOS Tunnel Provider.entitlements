@@ -12,5 +12,9 @@
 	<array>
 		<string>group.me.ss-abramchuk.openvpn-ios-client</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)me.ss-abramchuk.openvpn-ios-client.keychain-group</string>
+	</array>
 </dict>
 </plist>
