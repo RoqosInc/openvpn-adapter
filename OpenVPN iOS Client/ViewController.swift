@@ -64,7 +64,7 @@ class ViewController: UIViewController {
                 }
                 
 //                let configurationFile = Bundle.main.url(forResource: "local_vpn_server", withExtension: "ovpn")
-                let configurationFile = Bundle.main.url(forResource: "freeopenvpn_USA_udp", withExtension: "ovpn")
+                let configurationFile = Bundle.main.url(forResource: "freeopenvpn_USA_tcp", withExtension: "ovpn")
                 let configurationContent = try! Data(contentsOf: configurationFile!)
                 
                 let tunnelProtocol = NETunnelProviderProtocol()
