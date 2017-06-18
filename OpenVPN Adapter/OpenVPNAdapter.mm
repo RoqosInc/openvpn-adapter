@@ -14,6 +14,8 @@
 
 #import <NetworkExtension/NetworkExtension.h>
 
+#import <openvpn/addr/ipv4.hpp>
+
 #import "OpenVPNTunnelSettings.h"
 #import "OpenVPNClient.h"
 #import "OpenVPNError.h"
@@ -28,11 +30,6 @@
 #import "OpenVPNAdapter.h"
 #import "OpenVPNAdapter+Internal.h"
 #import "OpenVPNAdapter+Public.h"
-
-NSString * const OpenVPNAdapterErrorDomain = @"me.ss-abramchuk.openvpn-adapter.error-domain";
-
-NSString * const OpenVPNAdapterErrorFatalKey = @"me.ss-abramchuk.openvpn-adapter.error-key.fatal";
-NSString * const OpenVPNAdapterErrorEventKey = @"me.ss-abramchuk.openvpn-adapter.error-key.event";
 
 @interface OpenVPNAdapter () {
     __weak id<OpenVPNAdapterDelegate> _delegate;
@@ -60,7 +57,9 @@ NSString * const OpenVPNAdapterErrorEventKey = @"me.ss-abramchuk.openvpn-adapter
 - (void)readTUNPackets;
 - (void)readVPNData:(NSData *)data;
 - (OpenVPNEvent)getEventIdentifierByName:(NSString *)eventName;
+- (NSString *)getDescriptionForErrorEvent:(OpenVPNEvent)event;
 - (NSString *)getSubnetFromPrefixLength:(NSNumber *)prefixLength;
+- (void)performAsyncBlock:(void (^)())block;
 
 @end
 
@@ -145,12 +144,14 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         return NO;
     }
     
+    NSString *defaultGateway = [gateway length] == 0 || [gateway isEqualToString:@"UNSPEC"] ? nil : gateway;
+    
     if (isIPv6) {
         if (!self.tunnelSettingsIPv6.initialized) {
             self.tunnelSettingsIPv6.initialized = YES;
         }
         
-        self.defaultGatewayIPv6 = gateway;
+        self.defaultGatewayIPv6 = defaultGateway;
         
         [self.tunnelSettingsIPv6.localAddresses addObject:address];
         [self.tunnelSettingsIPv6.prefixLengths addObject:prefixLength];
@@ -159,7 +160,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
             self.tunnelSettingsIPv4.initialized = YES;
         }
         
-        self.defaultGatewayIPv4 = gateway;
+        self.defaultGatewayIPv4 = defaultGateway;
         
         [self.tunnelSettingsIPv4.localAddresses addObject:address];
         [self.tunnelSettingsIPv4.prefixLengths addObject:prefixLength];
@@ -308,9 +309,11 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     // Establish TUN interface
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     
-    [self.delegate configureTunnelWithSettings:networkSettings callback:^(id<OpenVPNAdapterPacketFlow> _Nullable flow) {
-        self.packetFlow = flow;
-        dispatch_semaphore_signal(sema);
+    [self performAsyncBlock:^{
+        [self.delegate configureTunnelWithSettings:networkSettings callback:^(id<OpenVPNAdapterPacketFlow> _Nullable flow) {
+            self.packetFlow = flow;
+            dispatch_semaphore_signal(sema);
+        }];
     }];
     
     // Wait 10 seconds
@@ -341,7 +344,12 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     if (event->error) {
         NSMutableDictionary *userInfo = [NSMutableDictionary new];
         [userInfo setObject:@(event->fatal) forKey:OpenVPNAdapterErrorFatalKey];
-        [userInfo setObject:@(eventIdentifier) forKey:OpenVPNAdapterErrorEventKey];
+        [userInfo setObject:@(eventIdentifier) forKey:OpenVPNAdapterErrorEventIdentifierKey];
+        
+        NSString *eventDescription = [self getDescriptionForErrorEvent:eventIdentifier];
+        if (eventDescription) {
+            [userInfo setObject:eventDescription forKey:NSLocalizedFailureReasonErrorKey];
+        }
         
         if (eventMessage != nil && ![eventMessage isEqualToString:@""]) {
             [userInfo setObject:eventMessage forKey:NSLocalizedDescriptionKey];
@@ -351,9 +359,13 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
                                              code:OpenVPNErrorClientFailure
                                          userInfo:[userInfo copy]];
         
-        [self.delegate handleError:error];
+        [self performAsyncBlock:^{
+            [self.delegate handleError:error];
+        }];
     } else {
-        [self.delegate handleEvent:eventIdentifier message:eventMessage == nil || [eventMessage isEqualToString:@""] ? nil : eventMessage];
+        [self performAsyncBlock:^{
+            [self.delegate handleEvent:eventIdentifier message:eventMessage == nil || [eventMessage isEqualToString:@""] ? nil : eventMessage];
+        }];
     }
 }
 
@@ -362,7 +374,9 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     
     if ([self.delegate respondsToSelector:@selector(handleLog:)]) {
         NSString *message = [NSString stringWithCString:log->text.c_str() encoding:NSUTF8StringEncoding];
-        [self.delegate handleLog:message];
+        [self performAsyncBlock:^{
+            [self.delegate handleLog:message];
+        }];
     }
 }
 
@@ -372,7 +386,9 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     NSAssert(self.delegate != nil, @"delegate property should not be nil");
     
     if ([self.delegate respondsToSelector:@selector(tick)]) {
-        [self.delegate tick];
+        [self performAsyncBlock:^{
+            [self.delegate tick];
+        }];
     }
 }
 
@@ -467,16 +483,20 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
                                                      code:OpenVPNErrorClientFailure
                                                  userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithUTF8String:status.message.c_str()],
                                                              OpenVPNAdapterErrorFatalKey: @(YES),
-                                                             OpenVPNAdapterErrorEventKey: @(OpenVPNEventConnectionFailed) }];
-                [self.delegate handleError:error];
+                                                             OpenVPNAdapterErrorEventIdentifierKey: @(OpenVPNEventConnectionFailed) }];
+                [self performAsyncBlock:^{
+                    [self.delegate handleError:error];
+                }];
             }
         } catch(const std::exception& e) {
             NSError *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain
                                                  code:OpenVPNErrorClientFailure
                                              userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithUTF8String:e.what()],
                                                          OpenVPNAdapterErrorFatalKey: @(YES),
-                                                         OpenVPNAdapterErrorEventKey: @(OpenVPNEventConnectionFailed) }];
-            [self.delegate handleError:error];
+                                                         OpenVPNAdapterErrorEventIdentifierKey: @(OpenVPNEventConnectionFailed) }];
+            [self performAsyncBlock:^{
+                [self.delegate handleError:error];
+            }];
         }
         
         self.remoteAddress = nil;
@@ -597,6 +617,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         @"INFO": @(OpenVPNEventInfo),
         @"PAUSE": @(OpenVPNEventPause),
         @"RESUME": @(OpenVPNEventResume),
+        @"RELAY": @(OpenVPNEventRelay),
         @"TRANSPORT_ERROR": @(OpenVPNEventTransportError),
         @"TUN_ERROR": @(OpenVPNEventTunError),
         @"CLIENT_RESTART": @(OpenVPNEventClientRestart),
@@ -614,21 +635,43 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         @"TUN_IFACE_DISABLED": @(OpenVPNEventTunIfaceDisabled),
         @"EPKI_ERROR": @(OpenVPNEventEPKIError),
         @"EPKI_INVALID_ALIAS": @(OpenVPNEventEPKIInvalidAlias),
+        @"RELAY_ERROR": @(OpenVPNEventRelayError)
     };
     
     OpenVPNEvent event = events[eventName] != nil ? (OpenVPNEvent)[(NSNumber *)events[eventName] unsignedIntegerValue] : OpenVPNEventUnknown;
     return event;
 }
 
+- (NSString *)getDescriptionForErrorEvent:(OpenVPNEvent)event {
+    switch (event) {
+        case OpenVPNEventTransportError: return @"General transport error.";
+        case OpenVPNEventTunError: return @"General tun error.";
+        case OpenVPNEventClientRestart: return @"RESTART message from server received.";
+        case OpenVPNEventAuthFailed: return @"General authentication failure.";
+        case OpenVPNEventCertVerifyFail: return @"Peer certificate verification failure.";
+        case OpenVPNEventTLSVersionMin: return @"Peer cannot handshake at our minimum required TLS version.";
+        case OpenVPNEventClientHalt: return @"HALT message from server received.";
+        case OpenVPNEventConnectionTimeout: return @"Connection failed to establish within given time.";
+        case OpenVPNEventInactiveTimeout: return @"Disconnected due to inactive timer.";
+        case OpenVPNEventProxyNeedCreds: return @"HTTP proxy needs credentials.";
+        case OpenVPNEventProxyError: return @"HTTP proxy error.";
+        case OpenVPNEventTunSetupFailed: return @"Error setting up TUN interface.";
+        case OpenVPNEventTunIfaceCreate: return @"Error creating TUN interface.";
+        case OpenVPNEventTunIfaceDisabled: return @"TUN interface is disabled.";
+        case OpenVPNEventRelayError: return @"RELAY error.";
+            
+        default: return nil;
+    }
+}
+
 - (NSString *)getSubnetFromPrefixLength:(NSNumber *)prefixLength {
-    uint32_t bitmask = UINT_MAX << (sizeof(uint32_t) * 8 - prefixLength.integerValue);
-    
-    uint8_t first = (bitmask >> 24) & 0xFF;
-    uint8_t second = (bitmask >> 16) & 0xFF;
-    uint8_t third = (bitmask >> 8) & 0xFF;
-    uint8_t fourth = bitmask & 0xFF;
-    
-    return [NSString stringWithFormat:@"%hhu.%hhu.%hhu.%hhu", first, second, third, fourth];
+    std::string subnet = openvpn::IPv4::Addr::netmask_from_prefix_len([prefixLength intValue]).to_string();
+    return [NSString stringWithUTF8String:subnet.c_str()];
+}
+
+- (void)performAsyncBlock:(void (^)())block {
+    dispatch_queue_t mainQueue = dispatch_get_main_queue();
+    dispatch_async(mainQueue, block);
 }
 
 #pragma mark Deallocation
