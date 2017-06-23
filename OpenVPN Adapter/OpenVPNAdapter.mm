@@ -14,6 +14,9 @@
 
 #import <NetworkExtension/NetworkExtension.h>
 
+#import <openvpn/ip/ip.hpp>
+#import <openvpn/addr/ipv4.hpp>
+
 #import "OpenVPNTunnelSettings.h"
 #import "OpenVPNClient.h"
 #import "OpenVPNError.h"
@@ -57,6 +60,7 @@
 - (OpenVPNEvent)getEventIdentifierByName:(NSString *)eventName;
 - (NSString *)getDescriptionForErrorEvent:(OpenVPNEvent)event;
 - (NSString *)getSubnetFromPrefixLength:(NSNumber *)prefixLength;
+- (void)performAsyncBlock:(void (^)())block;
 
 @end
 
@@ -306,9 +310,11 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     // Establish TUN interface
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     
-    [self.delegate configureTunnelWithSettings:networkSettings callback:^(id<OpenVPNAdapterPacketFlow> _Nullable flow) {
-        self.packetFlow = flow;
-        dispatch_semaphore_signal(sema);
+    [self performAsyncBlock:^{
+        [self.delegate configureTunnelWithSettings:networkSettings callback:^(id<OpenVPNAdapterPacketFlow> _Nullable flow) {
+            self.packetFlow = flow;
+            dispatch_semaphore_signal(sema);
+        }];
     }];
     
     // Wait 10 seconds
@@ -354,9 +360,13 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
                                              code:OpenVPNErrorClientFailure
                                          userInfo:[userInfo copy]];
         
-        [self.delegate handleError:error];
+        [self performAsyncBlock:^{
+            [self.delegate handleError:error];
+        }];
     } else {
-        [self.delegate handleEvent:eventIdentifier message:eventMessage == nil || [eventMessage isEqualToString:@""] ? nil : eventMessage];
+        [self performAsyncBlock:^{
+            [self.delegate handleEvent:eventIdentifier message:eventMessage == nil || [eventMessage isEqualToString:@""] ? nil : eventMessage];
+        }];
     }
 }
 
@@ -365,7 +375,9 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     
     if ([self.delegate respondsToSelector:@selector(handleLog:)]) {
         NSString *message = [NSString stringWithCString:log->text.c_str() encoding:NSUTF8StringEncoding];
-        [self.delegate handleLog:message];
+        [self performAsyncBlock:^{
+            [self.delegate handleLog:message];
+        }];
     }
 }
 
@@ -375,7 +387,9 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     NSAssert(self.delegate != nil, @"delegate property should not be nil");
     
     if ([self.delegate respondsToSelector:@selector(tick)]) {
-        [self.delegate tick];
+        [self performAsyncBlock:^{
+            [self.delegate tick];
+        }];
     }
 }
 
@@ -471,7 +485,9 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
                                                  userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithUTF8String:status.message.c_str()],
                                                              OpenVPNAdapterErrorFatalKey: @(YES),
                                                              OpenVPNAdapterErrorEventIdentifierKey: @(OpenVPNEventConnectionFailed) }];
-                [self.delegate handleError:error];
+                [self performAsyncBlock:^{
+                    [self.delegate handleError:error];
+                }];
             }
         } catch(const std::exception& e) {
             NSError *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain
@@ -479,7 +495,9 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
                                              userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithUTF8String:e.what()],
                                                          OpenVPNAdapterErrorFatalKey: @(YES),
                                                          OpenVPNAdapterErrorEventIdentifierKey: @(OpenVPNEventConnectionFailed) }];
-            [self.delegate handleError:error];
+            [self performAsyncBlock:^{
+                [self.delegate handleError:error];
+            }];
         }
         
         self.remoteAddress = nil;
@@ -543,12 +561,16 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 - (void)readTUNPackets {
     [self.packetFlow readPacketsWithCompletionHandler:^(NSArray<NSData *> * _Nonnull packets, NSArray<NSNumber *> * _Nonnull protocols) {
         [packets enumerateObjectsUsingBlock:^(NSData * data, NSUInteger idx, BOOL * stop) {
-            // Prepend data with network protocol. It should be done because OpenVPN uses uint32_t prefixes containing network protocol.
+            NSMutableData *packet = [NSMutableData new];
+            
+#if TARGET_OS_IPHONE
+            // Prepend data with network protocol. It should be done because OpenVPN on iOS uses uint32_t prefixes containing network protocol.
             NSNumber *protocol = protocols[idx];
             uint32_t prefix = CFSwapInt32HostToBig((uint32_t)[protocol unsignedIntegerValue]);
-            
-            NSMutableData *packet = [NSMutableData new];
+
             [packet appendBytes:&prefix length:sizeof(prefix)];
+#endif
+            
             [packet appendData:data];
             
             // Send data to the VPN server
@@ -562,7 +584,8 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 #pragma mark OpenVPN -> TUN
 
 - (void)readVPNData:(NSData *)data {
-    // Get network protocol from data
+#if TARGET_OS_IPHONE
+    // Get network protocol from prefix
     NSUInteger prefixSize = sizeof(uint32_t);
     
     if (data.length < prefixSize) {
@@ -570,13 +593,24 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         return;
     }
     
-    uint32_t protocol = UINT32_MAX;
+    uint32_t protocol = PF_UNSPEC;
     [data getBytes:&protocol length:prefixSize];
-    
     protocol = CFSwapInt32BigToHost(protocol);
     
+    NSRange range = NSMakeRange(prefixSize, data.length - prefixSize);
+    NSData *packet = [data subdataWithRange:range];
+#else
+    // Get network protocol from header
+    uint8_t header = 0;
+    [data getBytes:&header length:1];
+    
+    uint32_t version = openvpn::IPHeader::version(header);
+    uint8_t protocol = [self getProtocolFamily:version];
+    
+    NSData *packet = data;
+#endif
+    
     // Send the packet to the TUN interface
-    NSData *packet = [data subdataWithRange:NSMakeRange(prefixSize, data.length - prefixSize)];
     if (![self.packetFlow writePackets:@[packet] withProtocols:@[@(protocol)]]) {
         NSLog(@"Failed to send OpenVPN packet to the TUN interface");
     }
@@ -648,14 +682,21 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 }
 
 - (NSString *)getSubnetFromPrefixLength:(NSNumber *)prefixLength {
-    uint32_t bitmask = UINT_MAX << (sizeof(uint32_t) * 8 - prefixLength.integerValue);
+    std::string subnet = openvpn::IPv4::Addr::netmask_from_prefix_len([prefixLength intValue]).to_string();
+    return [NSString stringWithUTF8String:subnet.c_str()];
+}
+
+- (uint8_t)getProtocolFamily:(uint32_t)version {
+    switch (version) {
+        case 4: return PF_INET;
+        case 6: return PF_INET6;
+        default: return PF_UNSPEC;
+    }
+}
     
-    uint8_t first = (bitmask >> 24) & 0xFF;
-    uint8_t second = (bitmask >> 16) & 0xFF;
-    uint8_t third = (bitmask >> 8) & 0xFF;
-    uint8_t fourth = bitmask & 0xFF;
-    
-    return [NSString stringWithFormat:@"%hhu.%hhu.%hhu.%hhu", first, second, third, fourth];
+- (void)performAsyncBlock:(void (^)())block {
+    dispatch_queue_t mainQueue = dispatch_get_main_queue();
+    dispatch_async(mainQueue, block);
 }
 
 #pragma mark Deallocation
