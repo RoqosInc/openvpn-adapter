@@ -67,8 +67,8 @@ class ViewController: UIViewController {
                     return
                 }
                 
-//                let configurationFile = Bundle.main.url(forResource: "local_vpn_server", withExtension: "ovpn")
-                let configurationFile = Bundle.main.url(forResource: "freeopenvpn_USA_tcp", withExtension: "ovpn")
+                let configurationFile = Bundle.main.url(forResource: "local_vpn_server", withExtension: "ovpn")
+//                let configurationFile = Bundle.main.url(forResource: "freeopenvpn_USA_tcp", withExtension: "ovpn")
                 let configurationContent = try! Data(contentsOf: configurationFile!)
                 
                 let passwordKey = "me.ss-abramchuk.openvpn-ios-client.password"
