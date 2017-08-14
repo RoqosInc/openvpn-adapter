@@ -200,7 +200,7 @@ namespace openvpn {
       std::string externalPkiAlias;
 
       // If true, don't send client cert/key to peer.
-      bool disableClientCert = false;
+      bool disableClientCert = true;
 
       // SSL library debug level
       int sslDebugLevel = 0;
