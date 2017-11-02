@@ -7,10 +7,10 @@ APPLICATION_EXTENSION_API_ONLY = YES
 CLANG_CXX_LANGUAGE_STANDARD = gnu++14
 CLANG_CXX_LIBRARY = libc++
 VENDORS_PATH = $(PROJECT_DIR)/OpenVPN Adapter/Vendors
-HEADER_SEARCH_PATHS = "$(VENDORS_PATH)/asio/asio/include" "$(VENDORS_PATH)/lz4/include" "$(VENDORS_PATH)/mbedtls/include" "$(VENDORS_PATH)/openvpn"
-LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = "$(VENDORS_PATH)/lz4/lib/sim" "$(VENDORS_PATH)/mbedtls/lib/sim"
-LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = "$(VENDORS_PATH)/lz4/lib/ios" "$(VENDORS_PATH)/mbedtls/lib/ios"
-LIBRARY_SEARCH_PATHS[sdk=macosx*] = "$(VENDORS_PATH)/lz4/lib/macos" "$(VENDORS_PATH)/mbedtls/lib/macos"
-OTHER_LDFLAGS = -lmbedtls -lmbedx509 -lmbedcrypto -llz4
-OTHER_CPLUSPLUSFLAGS = $(OTHER_CFLAGS) -DUSE_ASIO -DASIO_STANDALONE -DASIO_NO_DEPRECATED -DHAVE_LZ4 -DUSE_MBEDTLS -DOPENVPN_FORCE_TUN_NULL -DUSE_TUN_BUILDER
+HEADER_SEARCH_PATHS = "$(VENDORS_PATH)/asio/asio/include" "$(VENDORS_PATH)/lz4/include" "$(VENDORS_PATH)/openssl/include" "$(VENDORS_PATH)/openvpn"
+LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*] = "$(VENDORS_PATH)/lz4/lib/sim" "$(VENDORS_PATH)/openssl/lib/sim"
+LIBRARY_SEARCH_PATHS[sdk=iphoneos*] = "$(VENDORS_PATH)/lz4/lib/ios" "$(VENDORS_PATH)/openssl/lib/ios"
+LIBRARY_SEARCH_PATHS[sdk=macosx*] = "$(VENDORS_PATH)/lz4/lib/macos" "$(VENDORS_PATH)/openssl/lib/macos"
+OTHER_LDFLAGS = -lssl -lcrypto -llz4
+OTHER_CPLUSPLUSFLAGS = $(OTHER_CFLAGS) -DUSE_ASIO -DASIO_STANDALONE -DASIO_NO_DEPRECATED -DHAVE_LZ4 -DUSE_OPENSSL -DOPENVPN_FORCE_TUN_NULL -DUSE_TUN_BUILDER
 GCC_WARN_64_TO_32_BIT_CONVERSION = NO
