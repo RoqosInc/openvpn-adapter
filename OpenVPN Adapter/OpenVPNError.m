@@ -11,4 +11,4 @@
 NSString * const OpenVPNAdapterErrorDomain = @"me.ss-abramchuk.openvpn-adapter.error-domain";
 
 NSString * const OpenVPNAdapterErrorFatalKey = @"me.ss-abramchuk.openvpn-adapter.error-key.fatal";
-NSString * const OpenVPNAdapterErrorEventIdentifierKey = @"me.ss-abramchuk.openvpn-adapter.error-key.event";
+NSString * const OpenVPNAdapterErrorMessageKey = @"me.ss-abramchuk.openvpn-adapter.error-key.message";
