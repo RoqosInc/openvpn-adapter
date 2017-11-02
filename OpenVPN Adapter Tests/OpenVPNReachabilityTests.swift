@@ -29,16 +29,27 @@ class OpenVPNReachabilityTests: XCTestCase {
             return
         }
         
+        XCTAssert(interface.powerOn())
+        
+        let reachability = OpenVPNReachability()
+        XCTAssert(reachability.reachabilityStatus == .reachableViaWiFi)
+    }
+    
+    func testReachabilityTracking() {
+        let wifiClient = CWWiFiClient.shared()
+        guard let interface = wifiClient.interface() else {
+            XCTFail()
+            return
+        }
+        
         let reachabilityExpectation = expectation(description: "me.ss-abramchuk.openvpn-adapter.reachability")
         
         let reachability = OpenVPNReachability()
-        reachability.reachabilityStatusChangedBlock = { status in
+        reachability.startTracking { (status) in
             if case OpenVPNReachabilityStatus.reachableViaWiFi = status {
                 reachabilityExpectation.fulfill()
             }
         }
-        
-        reachability.startTracking()
         
         DispatchQueue.main.asyncAfter(deadline: .now()) { 
             try? interface.setPower(false)
