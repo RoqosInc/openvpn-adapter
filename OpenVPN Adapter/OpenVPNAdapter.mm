@@ -14,12 +14,13 @@
 
 #import <NetworkExtension/NetworkExtension.h>
 
+#import <openvpn/ip/ip.hpp>
 #import <openvpn/addr/ipv4.hpp>
 
 #import "OpenVPNTunnelSettings.h"
 #import "OpenVPNClient.h"
 #import "OpenVPNError.h"
-#import "OpenVPNEvent.h"
+#import "OpenVPNAdapterEvent.h"
 #import "OpenVPNConfiguration+Internal.h"
 #import "OpenVPNCredentials+Internal.h"
 #import "OpenVPNProperties+Internal.h"
@@ -32,13 +33,12 @@
 #import "OpenVPNAdapter+Public.h"
 
 @interface OpenVPNAdapter () {
+    CFSocketRef _tunSocket;
+    CFSocketRef _vpnSocket;
     __weak id<OpenVPNAdapterDelegate> _delegate;
 }
 
-@property OpenVPNClient *vpnClient;
-
-@property CFSocketRef vpnSocket;
-@property CFSocketRef tunSocket;
+@property (assign, nonatomic) OpenVPNClient *vpnClient;
 
 @property (strong, nonatomic) NSString *remoteAddress;
 
@@ -54,16 +54,9 @@
 
 @property (weak, nonatomic) id<OpenVPNAdapterPacketFlow> packetFlow;
 
-- (void)readTUNPackets;
-- (void)readVPNData:(NSData *)data;
-- (OpenVPNEvent)getEventIdentifierByName:(NSString *)eventName;
-- (NSString *)getDescriptionForErrorEvent:(OpenVPNEvent)event;
-- (NSString *)getSubnetFromPrefixLength:(NSNumber *)prefixLength;
-- (void)performAsyncBlock:(void (^)())block;
-
 @end
 
-@implementation OpenVPNAdapter (Internal)
+@implementation OpenVPNAdapter
 
 #pragma mark Sockets Configuration
 
@@ -72,7 +65,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     
     switch (type) {
         case kCFSocketDataCallBack:
-            [adapter readVPNData:(__bridge NSData *)data];
+            [adapter readVPNPacket:(__bridge NSData *)data];
             break;
             
         default:
@@ -94,15 +87,15 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     
     CFSocketContext socketCtxt = {0, (__bridge void *)self, NULL, NULL, NULL};
     
-    self.vpnSocket = CFSocketCreateWithNative(kCFAllocatorDefault, sockets[0], kCFSocketDataCallBack, &socketCallback, &socketCtxt);
-    self.tunSocket = CFSocketCreateWithNative(kCFAllocatorDefault, sockets[1], kCFSocketNoCallBack, NULL, NULL);
+    _vpnSocket = CFSocketCreateWithNative(kCFAllocatorDefault, sockets[0], kCFSocketDataCallBack, &socketCallback, &socketCtxt);
+    _tunSocket = CFSocketCreateWithNative(kCFAllocatorDefault, sockets[1], kCFSocketNoCallBack, NULL, NULL);
     
-    if (!self.vpnSocket || !self.tunSocket) {
+    if (!_vpnSocket || !_tunSocket) {
         NSLog(@"Failed to create core foundation sockets from native sockets");
         return NO;
     }
     
-    CFRunLoopSourceRef tunSocketSource = CFSocketCreateRunLoopSource(kCFAllocatorDefault, self.vpnSocket, 0);
+    CFRunLoopSourceRef tunSocketSource = CFSocketCreateRunLoopSource(kCFAllocatorDefault, _vpnSocket, 0);
     CFRunLoopAddSource(CFRunLoopGetMain(), tunSocketSource, kCFRunLoopDefaultMode);
     
     CFRelease(tunSocketSource);
@@ -198,7 +191,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         
         [self.tunnelSettingsIPv6.includedRoutes addObject:includedRoute];
     } else {
-        NSString *subnet = [self getSubnetFromPrefixLength:prefixLength];
+        NSString *subnet = [self subnetFromPrefixLength:prefixLength];
         
         NEIPv4Route *includedRoute = [[NEIPv4Route alloc] initWithDestinationAddress:route subnetMask:subnet];
         includedRoute.gatewayAddress = self.defaultGatewayIPv4;
@@ -218,7 +211,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         NEIPv6Route *excludedRoute = [[NEIPv6Route alloc] initWithDestinationAddress:route networkPrefixLength:prefixLength];
         [self.tunnelSettingsIPv6.excludedRoutes addObject:excludedRoute];
     } else {
-        NSString *subnet = [self getSubnetFromPrefixLength:prefixLength];
+        NSString *subnet = [self subnetFromPrefixLength:prefixLength];
         NEIPv4Route *excludedRoute = [[NEIPv4Route alloc] initWithDestinationAddress:route subnetMask:subnet];
         [self.tunnelSettingsIPv4.excludedRoutes addObject:excludedRoute];
     }
@@ -255,7 +248,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     return YES;
 }
 
-- (NSInteger)establishTunnel {
+- (CFSocketNativeHandle)establishTunnel {
     NSAssert(self.delegate != nil, @"delegate property should not be nil");
     
     NEPacketTunnelNetworkSettings *networkSettings = [[NEPacketTunnelNetworkSettings alloc] initWithTunnelRemoteAddress:self.remoteAddress];
@@ -273,7 +266,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     if (self.tunnelSettingsIPv4.initialized) {
         NSMutableArray *subnets = [NSMutableArray new];
         [self.tunnelSettingsIPv4.prefixLengths enumerateObjectsUsingBlock:^(id _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-            NSString *subnet = [self getSubnetFromPrefixLength:obj];
+            NSString *subnet = [self subnetFromPrefixLength:obj];
             [subnets addObject:subnet];
         }];
         
@@ -325,10 +318,36 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     
     if (self.packetFlow) {
         [self readTUNPackets];
-        return CFSocketGetNative(self.tunSocket);
+        return CFSocketGetNative(_tunSocket);
     } else {
         return -1;
     }
+}
+
+- (void)teardownTunnel:(BOOL)disconnect {
+    [self resetTunnelSettings];
+    
+    if (_vpnSocket) {
+        CFSocketInvalidate(_vpnSocket);
+        CFRelease(_vpnSocket);
+        _vpnSocket = nil;
+    }
+    
+    if (_tunSocket) {
+        CFSocketInvalidate(_tunSocket);
+        CFRelease(_tunSocket);
+        _tunSocket = nil;
+    }
+}
+
+- (void)resetTunnelSettings {
+    self.remoteAddress = nil;
+    self.defaultGatewayIPv6 = nil;
+    self.defaultGatewayIPv4 = nil;
+    self.tunnelSettingsIPv6 = [[OpenVPNTunnelSettings alloc] init];
+    self.tunnelSettingsIPv4 = [[OpenVPNTunnelSettings alloc] init];
+    self.searchDomains = [[NSMutableArray alloc] init];
+    self.mtu = nil;
 }
 
 #pragma mark Event and Log Handlers
@@ -336,35 +355,27 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 - (void)handleEvent:(const ClientAPI::Event *)event {
     NSAssert(self.delegate != nil, @"delegate property should not be nil");
     
-    NSString *eventName = [NSString stringWithUTF8String:event->name.c_str()];
-    OpenVPNEvent eventIdentifier = [self getEventIdentifierByName:eventName];
-    
-    NSString *eventMessage = [NSString stringWithUTF8String:event->info.c_str()];
+    NSString *name = [NSString stringWithUTF8String:event->name.c_str()];
+    NSString *message = [NSString stringWithUTF8String:event->info.c_str()];
     
     if (event->error) {
-        NSMutableDictionary *userInfo = [NSMutableDictionary new];
-        [userInfo setObject:@(event->fatal) forKey:OpenVPNAdapterErrorFatalKey];
-        [userInfo setObject:@(eventIdentifier) forKey:OpenVPNAdapterErrorEventIdentifierKey];
-        
-        NSString *eventDescription = [self getDescriptionForErrorEvent:eventIdentifier];
-        if (eventDescription) {
-            [userInfo setObject:eventDescription forKey:NSLocalizedFailureReasonErrorKey];
-        }
-        
-        if (eventMessage != nil && ![eventMessage isEqualToString:@""]) {
-            [userInfo setObject:eventMessage forKey:NSLocalizedDescriptionKey];
-        }
+        OpenVPNAdapterError errorCode = [self errorByName:name];
+        NSString *errorReason = [self reasonForError:errorCode];
         
         NSError *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain
-                                             code:OpenVPNErrorClientFailure
-                                         userInfo:[userInfo copy]];
+                                             code:errorCode
+                                         userInfo:@{ NSLocalizedDescriptionKey: @"OpenVPN error occurred.",
+                                                     NSLocalizedFailureReasonErrorKey: errorReason,
+                                                     OpenVPNAdapterErrorMessageKey: message != nil ? message : @"",
+                                                     OpenVPNAdapterErrorFatalKey: @(event->fatal) }];
         
         [self performAsyncBlock:^{
             [self.delegate handleError:error];
         }];
     } else {
+        OpenVPNAdapterEvent eventIdentifier = [self eventByName:name];
         [self performAsyncBlock:^{
-            [self.delegate handleEvent:eventIdentifier message:eventMessage == nil || [eventMessage isEqualToString:@""] ? nil : eventMessage];
+            [self.delegate handleEvent:eventIdentifier message:message == nil || [message isEqualToString:@""] ? nil : message];
         }];
     }
 }
@@ -391,10 +402,6 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         }];
     }
 }
-
-@end
-
-@implementation OpenVPNAdapter (Public)
 
 #pragma mark Properties
 
@@ -440,11 +447,16 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 
 #pragma mark Client Configuration
 
-- (OpenVPNProperties *)applyConfiguration:(nonnull OpenVPNConfiguration *)configuration error:(out NSError * __nullable * __nullable)error {
+- (OpenVPNProperties *)applyConfiguration:(nonnull OpenVPNConfiguration *)configuration error:(out NSError **)error {
     ClientAPI::EvalConfig eval = self.vpnClient->eval_config(configuration.config);
     if (eval.error) {
-        if (error) *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain code:OpenVPNErrorConfigurationFailure userInfo:@{
-            NSLocalizedDescriptionKey: [NSString stringWithUTF8String:eval.message.c_str()]
+        NSString *errorReason = [self reasonForError:OpenVPNAdapterErrorConfigurationFailure];
+        
+        if (error) *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain code:OpenVPNAdapterErrorConfigurationFailure userInfo:@{
+            NSLocalizedDescriptionKey: @"Failed to apply OpenVPN configuration.",
+            NSLocalizedFailureReasonErrorKey: errorReason,
+            OpenVPNAdapterErrorMessageKey: [NSString stringWithUTF8String:eval.message.c_str()],
+            OpenVPNAdapterErrorFatalKey: @(YES)
         }];
         return nil;
     }
@@ -452,12 +464,20 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     return [[OpenVPNProperties alloc] initWithEvalConfig:eval];
 }
 
-- (BOOL)provideCredentials:(nonnull OpenVPNCredentials *)credentials error:(out NSError * __nullable * __nullable)error {
-    ClientAPI::Status creds_status = self.vpnClient->provide_creds(credentials.credentials);
-    if (creds_status.error) {
-        if (error) *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain code:OpenVPNErrorConfigurationFailure userInfo:@{
-            NSLocalizedDescriptionKey: [NSString stringWithUTF8String:creds_status.message.c_str()]
-        }];
+- (BOOL)provideCredentials:(nonnull OpenVPNCredentials *)credentials error:(out NSError **)error {
+    ClientAPI::Status status = self.vpnClient->provide_creds(credentials.credentials);
+    if (status.error) {
+        if (error) {
+            OpenVPNAdapterError errorCode = !status.status.empty() ? [self errorByName:[NSString stringWithUTF8String:status.status.c_str()]] : OpenVPNAdapterErrorCredentialsFailure;
+            NSString *errorReason = [self reasonForError:errorCode];
+            
+            *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain code:errorCode userInfo:@{
+                NSLocalizedDescriptionKey: @"Failed to provide OpenVPN credentials.",
+                NSLocalizedFailureReasonErrorKey: errorReason,
+                OpenVPNAdapterErrorMessageKey: [NSString stringWithUTF8String:status.message.c_str()],
+                OpenVPNAdapterErrorFatalKey: @(YES)
+            }];
+        }
         return NO;
     }
     
@@ -467,7 +487,7 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 #pragma mark Connection Control
 
 - (void)connect {
-    dispatch_queue_t connectQueue = dispatch_queue_create("me.ss-abramchuk.openvpn-adapter.connection", NULL);
+    dispatch_queue_t connectQueue = dispatch_queue_create("me.ss-abramchuk.openvpn-adapter.connection-queue", NULL);
     dispatch_async(connectQueue, ^{
         OpenVPNClient::init_process();
         
@@ -476,46 +496,20 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
         
         self.searchDomains = [NSMutableArray new];
         
-        try {
-            ClientAPI::Status status = self.vpnClient->connect();
-            if (status.error) {
-                NSError *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain
-                                                     code:OpenVPNErrorClientFailure
-                                                 userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithUTF8String:status.message.c_str()],
-                                                             OpenVPNAdapterErrorFatalKey: @(YES),
-                                                             OpenVPNAdapterErrorEventIdentifierKey: @(OpenVPNEventConnectionFailed) }];
-                [self performAsyncBlock:^{
-                    [self.delegate handleError:error];
-                }];
-            }
-        } catch(const std::exception& e) {
+        ClientAPI::Status status = self.vpnClient->connect();
+        if (status.error) {
+            OpenVPNAdapterError errorCode = !status.status.empty() ? [self errorByName:[NSString stringWithUTF8String:status.status.c_str()]] : OpenVPNAdapterErrorUnknown;
+            NSString *errorReason = [self reasonForError:errorCode];
+            
             NSError *error = [NSError errorWithDomain:OpenVPNAdapterErrorDomain
-                                                 code:OpenVPNErrorClientFailure
-                                             userInfo:@{ NSLocalizedDescriptionKey: [NSString stringWithUTF8String:e.what()],
-                                                         OpenVPNAdapterErrorFatalKey: @(YES),
-                                                         OpenVPNAdapterErrorEventIdentifierKey: @(OpenVPNEventConnectionFailed) }];
+                                                 code:errorCode
+                                             userInfo:@{ NSLocalizedDescriptionKey: @"Failed to establish connection with OpenVPN server.",
+                                                         NSLocalizedFailureReasonErrorKey: errorReason,
+                                                         OpenVPNAdapterErrorMessageKey: [NSString stringWithUTF8String:status.message.c_str()],
+                                                         OpenVPNAdapterErrorFatalKey: @(YES) }];
             [self performAsyncBlock:^{
                 [self.delegate handleError:error];
             }];
-        }
-        
-        self.remoteAddress = nil;
-        
-        self.tunnelSettingsIPv6 = nil;
-        self.tunnelSettingsIPv4 = nil;
-        
-        self.searchDomains = nil;
-        
-        self.mtu = nil;
-        
-        if (self.vpnSocket) {
-            CFSocketInvalidate(self.vpnSocket);
-            CFRelease(self.vpnSocket);
-        }
-        
-        if (self.tunSocket) {
-            CFSocketInvalidate(self.tunSocket);
-            CFRelease(self.tunSocket);
         }
         
         OpenVPNClient::uninit_process();
@@ -539,10 +533,6 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
     self.vpnClient->stop();
 }
 
-@end
-
-@implementation OpenVPNAdapter
-
 #pragma mark Initialization
 
 - (instancetype)init
@@ -559,116 +549,256 @@ static void socketCallback(CFSocketRef socket, CFSocketCallBackType type, CFData
 
 - (void)readTUNPackets {
     [self.packetFlow readPacketsWithCompletionHandler:^(NSArray<NSData *> * _Nonnull packets, NSArray<NSNumber *> * _Nonnull protocols) {
-        [packets enumerateObjectsUsingBlock:^(NSData * data, NSUInteger idx, BOOL * stop) {
-            // Prepend data with network protocol. It should be done because OpenVPN uses uint32_t prefixes containing network protocol.
-            NSNumber *protocol = protocols[idx];
-            uint32_t prefix = CFSwapInt32HostToBig((uint32_t)[protocol unsignedIntegerValue]);
-            
-            NSMutableData *packet = [NSMutableData new];
-            [packet appendBytes:&prefix length:sizeof(prefix)];
-            [packet appendData:data];
-            
-            // Send data to the VPN server
-            CFSocketSendData(self.vpnSocket, NULL, (CFDataRef)packet, 0.05);
-        }];
-        
+        [self writeVPNPackets:packets protocols:protocols];
         [self readTUNPackets];
     }];
 }
 
+- (void)writeVPNPackets:(NSArray<NSData *> *)packets protocols:(NSArray<NSNumber *> *)protocols {
+    [packets enumerateObjectsUsingBlock:^(NSData *data, NSUInteger idx, BOOL *stop) {
+        if (!_vpnSocket) {
+            *stop = YES;
+            return;
+        }
+        
+        // Prepare data for sending
+        NSData *packet = [self prepareVPNPacket:data protocol:protocols[idx]];
+        
+        // Send data to the VPN server
+        CFSocketSendData(_vpnSocket, NULL, (CFDataRef)packet, 0.05);
+    }];
+}
+
+- (NSData *)prepareVPNPacket:(NSData *)packet protocol:(NSNumber *)protocol {
+    NSMutableData *data = [NSMutableData new];
+    
+#if TARGET_OS_IPHONE
+    // Prepend data with network protocol. It should be done because OpenVPN on iOS uses uint32_t prefixes containing network protocol.
+    uint32_t prefix = CFSwapInt32HostToBig((uint32_t)[protocol unsignedIntegerValue]);
+    [data appendBytes:&prefix length:sizeof(prefix)];
+#endif
+    
+    [data appendData:packet];
+    
+    return [data copy];
+}
+
 #pragma mark OpenVPN -> TUN
 
-- (void)readVPNData:(NSData *)data {
-    // Get network protocol from data
+- (void)readVPNPacket:(NSData *)packet {
+#if TARGET_OS_IPHONE
+    // Get network protocol from prefix
     NSUInteger prefixSize = sizeof(uint32_t);
     
-    if (data.length < prefixSize) {
+    if (packet.length < prefixSize) {
         NSLog(@"Incorrect OpenVPN packet size");
         return;
     }
     
-    uint32_t protocol = UINT32_MAX;
-    [data getBytes:&protocol length:prefixSize];
-    
+    uint32_t protocol = PF_UNSPEC;
+    [packet getBytes:&protocol length:prefixSize];
     protocol = CFSwapInt32BigToHost(protocol);
     
+    NSRange range = NSMakeRange(prefixSize, packet.length - prefixSize);
+    NSData *data = [packet subdataWithRange:range];
+#else
+    // Get network protocol from header
+    uint8_t header = 0;
+    [packet getBytes:&header length:1];
+    
+    uint32_t version = openvpn::IPHeader::version(header);
+    uint8_t protocol = [self protocolFamilyForVersion:version];
+    
+    NSData *data = packet;
+#endif
+    
     // Send the packet to the TUN interface
-    NSData *packet = [data subdataWithRange:NSMakeRange(prefixSize, data.length - prefixSize)];
-    if (![self.packetFlow writePackets:@[packet] withProtocols:@[@(protocol)]]) {
+    if (![self.packetFlow writePackets:@[data] withProtocols:@[@(protocol)]]) {
         NSLog(@"Failed to send OpenVPN packet to the TUN interface");
     }
 }
 
 #pragma mark Utils
 
-- (OpenVPNEvent)getEventIdentifierByName:(NSString *)eventName {
+- (OpenVPNAdapterEvent)eventByName:(NSString *)eventName {
     NSDictionary *events = @{
-        @"DISCONNECTED": @(OpenVPNEventDisconnected),
-        @"CONNECTED": @(OpenVPNEventConnected),
-        @"RECONNECTING": @(OpenVPNEventReconnecting),
-        @"RESOLVE": @(OpenVPNEventResolve),
-        @"WAIT": @(OpenVPNEventWait),
-        @"WAIT_PROXY": @(OpenVPNEventWaitProxy),
-        @"CONNECTING": @(OpenVPNEventConnecting),
-        @"GET_CONFIG": @(OpenVPNEventGetConfig),
-        @"ASSIGN_IP": @(OpenVPNEventAssignIP),
-        @"ADD_ROUTES": @(OpenVPNEventAddRoutes),
-        @"ECHO": @(OpenVPNEventEcho),
-        @"INFO": @(OpenVPNEventInfo),
-        @"PAUSE": @(OpenVPNEventPause),
-        @"RESUME": @(OpenVPNEventResume),
-        @"RELAY": @(OpenVPNEventRelay),
-        @"TRANSPORT_ERROR": @(OpenVPNEventTransportError),
-        @"TUN_ERROR": @(OpenVPNEventTunError),
-        @"CLIENT_RESTART": @(OpenVPNEventClientRestart),
-        @"AUTH_FAILED": @(OpenVPNEventAuthFailed),
-        @"CERT_VERIFY_FAIL": @(OpenVPNEventCertVerifyFail),
-        @"TLS_VERSION_MIN": @(OpenVPNEventTLSVersionMin),
-        @"CLIENT_HALT": @(OpenVPNEventClientHalt),
-        @"CONNECTION_TIMEOUT": @(OpenVPNEventConnectionTimeout),
-        @"INACTIVE_TIMEOUT": @(OpenVPNEventInactiveTimeout),
-        @"DYNAMIC_CHALLENGE": @(OpenVPNEventDynamicChallenge),
-        @"PROXY_NEED_CREDS": @(OpenVPNEventProxyNeedCreds),
-        @"PROXY_ERROR": @(OpenVPNEventProxyError),
-        @"TUN_SETUP_FAILED": @(OpenVPNEventTunSetupFailed),
-        @"TUN_IFACE_CREATE": @(OpenVPNEventTunIfaceCreate),
-        @"TUN_IFACE_DISABLED": @(OpenVPNEventTunIfaceDisabled),
-        @"EPKI_ERROR": @(OpenVPNEventEPKIError),
-        @"EPKI_INVALID_ALIAS": @(OpenVPNEventEPKIInvalidAlias),
-        @"RELAY_ERROR": @(OpenVPNEventRelayError)
+        @"DISCONNECTED": @(OpenVPNAdapterEventDisconnected),
+        @"CONNECTED": @(OpenVPNAdapterEventConnected),
+        @"RECONNECTING": @(OpenVPNAdapterEventReconnecting),
+        @"RESOLVE": @(OpenVPNAdapterEventResolve),
+        @"WAIT": @(OpenVPNAdapterEventWait),
+        @"WAIT_PROXY": @(OpenVPNAdapterEventWaitProxy),
+        @"CONNECTING": @(OpenVPNAdapterEventConnecting),
+        @"GET_CONFIG": @(OpenVPNAdapterEventGetConfig),
+        @"ASSIGN_IP": @(OpenVPNAdapterEventAssignIP),
+        @"ADD_ROUTES": @(OpenVPNAdapterEventAddRoutes),
+        @"ECHO": @(OpenVPNAdapterEventEcho),
+        @"INFO": @(OpenVPNAdapterEventInfo),
+        @"PAUSE": @(OpenVPNAdapterEventPause),
+        @"RESUME": @(OpenVPNAdapterEventResume),
+        @"RELAY": @(OpenVPNAdapterEventRelay)
     };
     
-    OpenVPNEvent event = events[eventName] != nil ? (OpenVPNEvent)[(NSNumber *)events[eventName] unsignedIntegerValue] : OpenVPNEventUnknown;
+    OpenVPNAdapterEvent event = events[eventName] != nil ? (OpenVPNAdapterEvent)[events[eventName] integerValue] : OpenVPNAdapterEventUnknown;
     return event;
 }
 
-- (NSString *)getDescriptionForErrorEvent:(OpenVPNEvent)event {
-    switch (event) {
-        case OpenVPNEventTransportError: return @"General transport error.";
-        case OpenVPNEventTunError: return @"General tun error.";
-        case OpenVPNEventClientRestart: return @"RESTART message from server received.";
-        case OpenVPNEventAuthFailed: return @"General authentication failure.";
-        case OpenVPNEventCertVerifyFail: return @"Peer certificate verification failure.";
-        case OpenVPNEventTLSVersionMin: return @"Peer cannot handshake at our minimum required TLS version.";
-        case OpenVPNEventClientHalt: return @"HALT message from server received.";
-        case OpenVPNEventConnectionTimeout: return @"Connection failed to establish within given time.";
-        case OpenVPNEventInactiveTimeout: return @"Disconnected due to inactive timer.";
-        case OpenVPNEventProxyNeedCreds: return @"HTTP proxy needs credentials.";
-        case OpenVPNEventProxyError: return @"HTTP proxy error.";
-        case OpenVPNEventTunSetupFailed: return @"Error setting up TUN interface.";
-        case OpenVPNEventTunIfaceCreate: return @"Error creating TUN interface.";
-        case OpenVPNEventTunIfaceDisabled: return @"TUN interface is disabled.";
-        case OpenVPNEventRelayError: return @"RELAY error.";
-            
-        default: return nil;
+- (OpenVPNAdapterError)errorByName:(NSString *)errorName {
+    NSDictionary *errors = @{
+        @"NETWORK_RECV_ERROR": @(OpenVPNAdapterErrorNetworkRecvError),
+        @"NETWORK_EOF_ERROR": @(OpenVPNAdapterErrorNetworkEOFError),
+        @"NETWORK_SEND_ERROR": @(OpenVPNAdapterErrorNetworkSendError),
+        @"NETWORK_UNAVAILABLE": @(OpenVPNAdapterErrorNetworkUnavailable),
+        @"DECRYPT_ERROR": @(OpenVPNAdapterErrorDecryptError),
+        @"HMAC_ERROR": @(OpenVPNAdapterErrorDecryptError),
+        @"REPLAY_ERROR": @(OpenVPNAdapterErrorReplayError),
+        @"BUFFER_ERROR": @(OpenVPNAdapterErrorBufferError),
+        @"CC_ERROR": @(OpenVPNAdapterErrorCCError),
+        @"BAD_SRC_ADDR": @(OpenVPNAdapterErrorBadSrcAddr),
+        @"COMPRESS_ERROR": @(OpenVPNAdapterErrorCompressError),
+        @"RESOLVE_ERROR": @(OpenVPNAdapterErrorResolveError),
+        @"SOCKET_PROTECT_ERROR": @(OpenVPNAdapterErrorSocketProtectError),
+        @"TUN_READ_ERROR": @(OpenVPNAdapterErrorTUNReadError),
+        @"TUN_WRITE_ERROR": @(OpenVPNAdapterErrorTUNWriteError),
+        @"TUN_FRAMING_ERROR": @(OpenVPNAdapterErrorTUNFramingError),
+        @"TUN_SETUP_FAILED": @(OpenVPNAdapterErrorTUNSetupFailed),
+        @"TUN_IFACE_CREATE": @(OpenVPNAdapterErrorTUNIfaceCreate),
+        @"TUN_IFACE_DISABLED": @(OpenVPNAdapterErrorTUNIfaceDisabled),
+        @"TUN_ERROR": @(OpenVPNAdapterErrorTUNError),
+        @"TAP_NOT_SUPPORTED": @(OpenVPNAdapterErrorTAPNotSupported),
+        @"REROUTE_GW_NO_DNS": @(OpenVPNAdapterErrorRerouteGatewayNoDns),
+        @"TRANSPORT_ERROR": @(OpenVPNAdapterErrorTransportError),
+        @"TCP_OVERFLOW": @(OpenVPNAdapterErrorTCPOverflow),
+        @"TCP_SIZE_ERROR": @(OpenVPNAdapterErrorTCPSizeError),
+        @"TCP_CONNECT_ERROR": @(OpenVPNAdapterErrorTCPConnectError),
+        @"UDP_CONNECT_ERROR": @(OpenVPNAdapterErrorUDPConnectError),
+        @"SSL_ERROR": @(OpenVPNAdapterErrorSSLError),
+        @"SSL_PARTIAL_WRITE": @(OpenVPNAdapterErrorSSLPartialWrite),
+        @"ENCAPSULATION_ERROR": @(OpenVPNAdapterErrorEncapsulationError),
+        @"EPKI_CERT_ERROR": @(OpenVPNAdapterErrorEPKICertError),
+        @"EPKI_SIGN_ERROR": @(OpenVPNAdapterErrorEPKISignError),
+        @"HANDSHAKE_TIMEOUT": @(OpenVPNAdapterErrorHandshakeTimeout),
+        @"KEEPALIVE_TIMEOUT": @(OpenVPNAdapterErrorKeepaliveTimeout),
+        @"INACTIVE_TIMEOUT": @(OpenVPNAdapterErrorInactiveTimeout),
+        @"CONNECTION_TIMEOUT": @(OpenVPNAdapterErrorConnectionTimeout),
+        @"PRIMARY_EXPIRE": @(OpenVPNAdapterErrorPrimaryExpire),
+        @"TLS_VERSION_MIN": @(OpenVPNAdapterErrorTLSVersionMin),
+        @"TLS_AUTH_FAIL": @(OpenVPNAdapterErrorTLSAuthFail),
+        @"CERT_VERIFY_FAIL": @(OpenVPNAdapterErrorCertVerifyFail),
+        @"PEM_PASSWORD_FAIL": @(OpenVPNAdapterErrorPEMPasswordFail),
+        @"AUTH_FAILED": @(OpenVPNAdapterErrorAuthFailed),
+        @"CLIENT_HALT": @(OpenVPNAdapterErrorClientHalt),
+        @"CLIENT_RESTART": @(OpenVPNAdapterErrorClientRestart),
+        @"RELAY": @(OpenVPNAdapterErrorRelay),
+        @"RELAY_ERROR": @(OpenVPNAdapterErrorRelayError),
+        @"N_PAUSE": @(OpenVPNAdapterErrorPauseNumber),
+        @"N_RECONNECT": @(OpenVPNAdapterErrorReconnectNumber),
+        @"N_KEY_LIMIT_RENEG": @(OpenVPNAdapterErrorKeyLimitRenegNumber),
+        @"KEY_STATE_ERROR": @(OpenVPNAdapterErrorKeyStateError),
+        @"PROXY_ERROR": @(OpenVPNAdapterErrorProxyError),
+        @"PROXY_NEED_CREDS": @(OpenVPNAdapterErrorProxyNeedCreds),
+        @"KEV_NEGOTIATE_ERROR": @(OpenVPNAdapterErrorKevNegotiateError),
+        @"KEV_PENDING_ERROR": @(OpenVPNAdapterErrorKevPendingError),
+        @"N_KEV_EXPIRE": @(OpenVPNAdapterErrorKevExpireNumber),
+        @"PKTID_INVALID": @(OpenVPNAdapterErrorPKTIDInvalid),
+        @"PKTID_BACKTRACK": @(OpenVPNAdapterErrorPKTIDBacktrack),
+        @"PKTID_EXPIRE": @(OpenVPNAdapterErrorPKTIDExpire),
+        @"PKTID_REPLAY": @(OpenVPNAdapterErrorPKTIDReplay),
+        @"PKTID_TIME_BACKTRACK": @(OpenVPNAdapterErrorPKTIDTimeBacktrack),
+        @"DYNAMIC_CHALLENGE": @(OpenVPNAdapterErrorDynamicChallenge),
+        @"EPKI_ERROR": @(OpenVPNAdapterErrorEPKIError),
+        @"EPKI_INVALID_ALIAS": @(OpenVPNAdapterErrorEPKIInvalidAlias),
+    };
+    
+    OpenVPNAdapterError error = errors[errorName] != nil ? (OpenVPNAdapterError)[errors[errorName] integerValue] : OpenVPNAdapterErrorUnknown;
+    return error;
+}
+
+- (NSString *)reasonForError:(OpenVPNAdapterError)error {
+    // TODO: Add missing error reasons
+    switch (error) {
+        case OpenVPNAdapterErrorConfigurationFailure: return @"See OpenVPN error message for more details.";
+        case OpenVPNAdapterErrorCredentialsFailure: return @"See OpenVPN error message for more details.";
+        case OpenVPNAdapterErrorNetworkRecvError: return @"Errors receiving on network socket.";
+        case OpenVPNAdapterErrorNetworkEOFError: return @"EOF received on TCP network socket.";
+        case OpenVPNAdapterErrorNetworkSendError: return @"Errors sending on network socket";
+        case OpenVPNAdapterErrorNetworkUnavailable: return @"Network unavailable.";
+        case OpenVPNAdapterErrorDecryptError: return @"Data channel encrypt/decrypt error.";
+        case OpenVPNAdapterErrorHMACError: return @"HMAC verification failure.";
+        case OpenVPNAdapterErrorReplayError: return @"Error from PacketIDReceive.";
+        case OpenVPNAdapterErrorBufferError: return @"Exception thrown in Buffer methods.";
+        case OpenVPNAdapterErrorCCError: return @"General control channel errors.";
+        case OpenVPNAdapterErrorBadSrcAddr: return @"Packet from unknown source address.";
+        case OpenVPNAdapterErrorCompressError: return @"Compress/Decompress errors on data channel.";
+        case OpenVPNAdapterErrorResolveError: return @"DNS resolution error.";
+        case OpenVPNAdapterErrorSocketProtectError: return @"Error calling protect() method on socket.";
+        case OpenVPNAdapterErrorTUNReadError: return @"Read errors on TUN/TAP interface.";
+        case OpenVPNAdapterErrorTUNWriteError: return @"Write errors on TUN/TAP interface.";
+        case OpenVPNAdapterErrorTUNFramingError: return @"Error with tun PF_INET/PF_INET6 prefix.";
+        case OpenVPNAdapterErrorTUNSetupFailed: return @"Error setting up TUN/TAP interface.";
+        case OpenVPNAdapterErrorTUNIfaceCreate: return @"Error creating TUN/TAP interface.";
+        case OpenVPNAdapterErrorTUNIfaceDisabled: return @"TUN/TAP interface is disabled.";
+        case OpenVPNAdapterErrorTUNError: return @"General tun error.";
+        case OpenVPNAdapterErrorTAPNotSupported: return @"Dev TAP is present in profile but not supported.";
+        case OpenVPNAdapterErrorRerouteGatewayNoDns: return @"redirect-gateway specified without alt DNS servers.";
+        case OpenVPNAdapterErrorTransportError: return @"General transport error";
+        case OpenVPNAdapterErrorTCPOverflow: return @"TCP output queue overflow.";
+        case OpenVPNAdapterErrorTCPSizeError: return @"Bad embedded uint16_t TCP packet size.";
+        case OpenVPNAdapterErrorTCPConnectError: return @"Client error on TCP connect.";
+        case OpenVPNAdapterErrorUDPConnectError: return @"Client error on UDP connect.";
+        case OpenVPNAdapterErrorSSLError: return @"Errors resulting from read/write on SSL object.";
+        case OpenVPNAdapterErrorSSLPartialWrite: return @"SSL object did not process all written cleartext.";
+        case OpenVPNAdapterErrorEncapsulationError: return @"Exceptions thrown during packet encapsulation.";
+        case OpenVPNAdapterErrorEPKICertError: return @"Error obtaining certificate from External PKI provider.";
+        case OpenVPNAdapterErrorEPKISignError: return @"Error obtaining RSA signature from External PKI provider.";
+        case OpenVPNAdapterErrorHandshakeTimeout: return @"Handshake failed to complete within given time frame.";
+        case OpenVPNAdapterErrorKeepaliveTimeout: return @"Lost contact with peer.";
+        case OpenVPNAdapterErrorInactiveTimeout: return @"Disconnected due to inactive timer.";
+        case OpenVPNAdapterErrorConnectionTimeout: return @"Connection failed to establish within given time.";
+        case OpenVPNAdapterErrorPrimaryExpire: return @"Primary key context expired.";
+        case OpenVPNAdapterErrorTLSVersionMin: return @"Peer cannot handshake at our minimum required TLS version.";
+        case OpenVPNAdapterErrorTLSAuthFail: return @"tls-auth HMAC verification failed.";
+        case OpenVPNAdapterErrorCertVerifyFail: return @"Peer certificate verification failure.";
+        case OpenVPNAdapterErrorPEMPasswordFail: return @"Incorrect or missing PEM private key decryption password.";
+        case OpenVPNAdapterErrorAuthFailed: return @"General authentication failure";
+        case OpenVPNAdapterErrorClientHalt: return @"HALT message from server received.";
+        case OpenVPNAdapterErrorClientRestart: return @"RESTART message from server received.";
+        case OpenVPNAdapterErrorRelay: return @"RELAY message from server received.";
+        case OpenVPNAdapterErrorRelayError: return @"RELAY error.";
+        case OpenVPNAdapterErrorPauseNumber: return @"";
+        case OpenVPNAdapterErrorReconnectNumber: return @"";
+        case OpenVPNAdapterErrorKeyLimitRenegNumber: return @"";
+        case OpenVPNAdapterErrorKeyStateError: return @"Received packet didn't match expected key state.";
+        case OpenVPNAdapterErrorProxyError: return @"HTTP proxy error.";
+        case OpenVPNAdapterErrorProxyNeedCreds: return @"HTTP proxy needs credentials.";
+        case OpenVPNAdapterErrorKevNegotiateError: return @"";
+        case OpenVPNAdapterErrorKevPendingError: return @"";
+        case OpenVPNAdapterErrorKevExpireNumber: return @"";
+        case OpenVPNAdapterErrorPKTIDInvalid: return @"";
+        case OpenVPNAdapterErrorPKTIDBacktrack: return @"";
+        case OpenVPNAdapterErrorPKTIDExpire: return @"";
+        case OpenVPNAdapterErrorPKTIDReplay: return @"";
+        case OpenVPNAdapterErrorPKTIDTimeBacktrack: return @"";
+        case OpenVPNAdapterErrorDynamicChallenge: return @"";
+        case OpenVPNAdapterErrorEPKIError: return @"";
+        case OpenVPNAdapterErrorEPKIInvalidAlias: return @"";
+        case OpenVPNAdapterErrorUnknown: return @"Unknown error.";
     }
 }
 
-- (NSString *)getSubnetFromPrefixLength:(NSNumber *)prefixLength {
+- (NSString *)subnetFromPrefixLength:(NSNumber *)prefixLength {
     std::string subnet = openvpn::IPv4::Addr::netmask_from_prefix_len([prefixLength intValue]).to_string();
     return [NSString stringWithUTF8String:subnet.c_str()];
 }
 
+- (uint8_t)protocolFamilyForVersion:(uint32_t)version {
+    switch (version) {
+        case 4: return PF_INET;
+        case 6: return PF_INET6;
+        default: return PF_UNSPEC;
+    }
+}
+    
 - (void)performAsyncBlock:(void (^)())block {
     dispatch_queue_t mainQueue = dispatch_get_main_queue();
     dispatch_async(mainQueue, block);
