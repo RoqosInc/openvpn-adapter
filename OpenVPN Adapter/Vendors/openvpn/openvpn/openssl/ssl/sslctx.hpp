@@ -332,7 +332,9 @@ namespace openvpn {
 #         else
             const TLSVersion::Type maxver = TLSVersion::V1_0;
 #         endif
-	  tls_version_min = TLSVersion::parse_tls_version_min(opt, relay_prefix, maxver);
+	  //tls_version_min = TLSVersion::parse_tls_version_min(opt, relay_prefix, maxver);
+	  // fix me. Parse tls-version-min properly. Currently doesn't parse 18.12.2019
+          tls_version_min = TLSVersion::V1_2;
 	}
 
 	// parse tls-cert-profile
